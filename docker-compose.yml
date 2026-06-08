@@ -1,0 +1,18 @@
+services:
+  ticket-monitor:
+    build: .
+    container_name: tixcraft-monitor
+    user: "${UID:-1000}:${GID:-1000}" # 以本機使用者的 UID/GID 執行，防止產生 root 權限檔案導致讀取失敗
+    mem_limit: 2.5g # 限制容器記憶體使用量，防止 Chrome 內部進程因記憶體上限被殺死
+    shm_size: 1g # 獨立共享記憶體空間，替代 ipc: host 避免與主機衝突
+    environment:
+      - DISPLAY=${DISPLAY}
+      - IN_DOCKER=true
+      - PYTHONUNBUFFERED=1
+      - HOME=/tmp
+      - REFRESH_INTERVAL=10.0
+      - SYNC_MODE=clock
+      - SYNC_OFFSET=-0.5
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      - ./chrome_profile:/app/chrome_profile
