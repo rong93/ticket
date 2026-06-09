@@ -7,7 +7,7 @@ try:
     import selenium
     import undetected_chromedriver as uc
     from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support.ui import WebDriverWait, Select
     from selenium.webdriver.support import expected_conditions as EC
 except ImportError:
     print("=" * 60)
@@ -124,6 +124,110 @@ def parse_tickets(html_content):
             
     return results
 
+def get_chrome_major_version():
+    """
+    嘗試取得 Windows 系統中 Chrome 的主要版本號，避免 undetected-chromedriver 版本偵測錯誤。
+    """
+    import platform
+    if platform.system() != "Windows":
+        return None
+        
+    try:
+        import winreg
+        import subprocess
+        # 優先從登錄檔中查詢 chrome.exe 的路徑
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe")
+        path, _ = winreg.QueryValueEx(key, "")
+        winreg.CloseKey(key)
+        
+        if path:
+            # 取得檔案版本資訊
+            cmd = ["powershell", "-Command", f"(Get-Item '{path}').VersionInfo.ProductVersion"]
+            output = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode('utf-8', errors='ignore').strip()
+            match = re.match(r"^(\d+)\.", output)
+            if match:
+                return int(match.group(1))
+    except Exception:
+        pass
+    return None
+
+def autofill_ticket_page(driver):
+    """
+    自動填寫購票頁面的數量、勾選條款，以及若為模擬網站則自動填入驗證碼。
+    """
+    try:
+        print("\n" + "=" * 50)
+        print("[自動化] 偵測到進入填寫資料頁面，開始自動輸入欄位...")
+        
+        # 1. 等待數量的 select 下拉選單載入
+        try:
+            WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located((By.CLASS_NAME, "quantity-select"))
+            )
+        except Exception:
+            print("[警告] 找不到張數選擇下拉選單（可能頁面載入較慢或結構不同）。")
+            return
+            
+        # 2. 自動選擇張數 (優先選擇 2 張，如果沒有 2 則選擇 1 張)
+        try:
+            quantity_select_el = driver.find_element(By.CLASS_NAME, "quantity-select")
+            quantity_select = Select(quantity_select_el)
+            # 檢查選單內可用的選項值
+            options = [opt.get_attribute("value") for opt in quantity_select.options]
+            if "2" in options:
+                quantity_select.select_by_value("2")
+                print("[自動化] 已自動選擇張數：2 張")
+            elif "1" in options:
+                quantity_select.select_by_value("1")
+                print("[自動化] 已自動選擇張數：1 張")
+        except Exception as e:
+            print(f"[警告] 自動選擇張數失敗: {e}")
+            
+        # 3. 自動勾選同意條款
+        try:
+            checkbox = driver.find_element(By.ID, "terms-checkbox")
+            if not checkbox.is_selected():
+                driver.execute_script("arguments[0].click();", checkbox)
+                print("[自動化] 已自動勾選同意服務條款")
+        except Exception as e:
+            print(f"[警告] 自動勾選服務條款失敗: {e}")
+            
+        # 4. 嘗試讀取驗證碼（僅限於模擬練習網站有 data-answer 屬性時）
+        try:
+            captcha_image = driver.find_element(By.ID, "captcha-image")
+            # 稍微等待 0.2 秒確保圖片屬性已渲染
+            time.sleep(0.2)
+            captcha_answer = captcha_image.get_attribute("data-answer")
+            
+            if captcha_answer:
+                print(f"[自動化] 偵測到模擬網頁驗證碼答案: {captcha_answer}")
+                captcha_input = driver.find_element(By.ID, "captcha-input")
+                captcha_input.clear()
+                captcha_input.send_keys(captcha_answer)
+                print("[自動化] 已自動填入驗證碼")
+                
+                # 暫時不自動送出，供使用者確認資料是否正確
+                # try:
+                #     confirm_button = driver.find_element(By.CSS_SELECTOR, "button.confirm-btn")
+                #     confirm_button.click()
+                #     print("[自動化] 模擬網站表單已自動送出！")
+                # except Exception:
+                #     pass
+            else:
+                print("[資訊] 此網頁非模擬練習網頁或未提供驗證碼明文，請手動輸入驗證碼。")
+                # 將焦點放到驗證碼輸入框，方便使用者直接打字
+                try:
+                    captcha_input = driver.find_element(By.ID, "captcha-input")
+                    captcha_input.click()
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"[資訊] 驗證碼處理跳過或失敗: {e}")
+            
+        print("=" * 50 + "\n")
+    except Exception as e:
+        print(f"[錯誤] 自動填寫過程發生異常: {e}")
+
 def main():
     # 使用者指定的目標網址
     target_url = "https://tixcraft.com/ticket/area/26_btskns/22510"
@@ -183,8 +287,15 @@ def main():
         options.add_argument('--disable-translate')
         options.add_argument('--mute-audio')
     
+    chrome_version = get_chrome_major_version()
+    if chrome_version:
+        print(f"[資訊] 偵測到 Chrome 主要版本: {chrome_version}")
+        
     try:
-        driver = uc.Chrome(user_data_dir=profile_dir, options=options)
+        if chrome_version:
+            driver = uc.Chrome(user_data_dir=profile_dir, options=options, version_main=chrome_version)
+        else:
+            driver = uc.Chrome(user_data_dir=profile_dir, options=options)
     except Exception as e:
         print(f"\n[錯誤] 無法啟動 Chrome：{e}")
         print("原因可能為：")
@@ -308,35 +419,6 @@ def main():
             html_content = driver.page_source
             results = parse_tickets(html_content)
             
-            # 列印結果至終端機
-            print(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] 票券即時狀態:")
-            print("-" * 65)
-            if not results:
-                print("未偵測到任何購票區域資訊。請確認頁面是否已正常載入，或該活動目前是否已售完/尚未開放。")
-                try:
-                    debug_file = os.path.join(profile_dir, "debug_page.html")
-                    with open(debug_file, "w", encoding="utf-8") as f:
-                        f.write(html_content)
-                    print(f"[除錯] 已自動將網頁原始碼儲存至: {debug_file}")
-                except Exception as e:
-                    print(f"[警告] 無法儲存除錯網頁: {e}")
-            else:
-                for res in results:
-                    status = res['status']
-                    # 依據狀態套用終端機顏色
-                    if "已售完" in status:
-                        # 灰色
-                        status_str = f"\033[90m{status:<10}\033[0m"
-                    elif "熱賣中" in status:
-                        # 綠色
-                        status_str = f"\033[92m{status:<10}\033[0m"
-                    else:
-                        # 黃色 / 剩餘票數
-                        status_str = f"\033[93m{status:<10}\033[0m"
-                        
-                    print(f"區域: {res['area']:<25} | 狀態: {status_str} | 剩餘票數: {res['remaining']}")
-            print("-" * 65)
-            
             # 篩選所有可購買且排除身障相關的區域
             valid_areas = []
             if results:
@@ -347,6 +429,34 @@ def main():
                         if any(kw in area_name for kw in ["身障", "身心障礙", "輪椅", "wheelchair"]):
                             continue
                         valid_areas.append(res)
+            
+            # 列印結果至終端機
+            if not results:
+                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 未偵測到任何購票區域資訊。請確認頁面是否已正常載入，或該活動目前是否已售完/尚未開放。")
+                try:
+                    debug_file = os.path.join(profile_dir, "debug_page.html")
+                    with open(debug_file, "w", encoding="utf-8") as f:
+                        f.write(html_content)
+                    print(f"[除錯] 已自動將網頁原始碼儲存至: {debug_file}")
+                except Exception as e:
+                    print(f"[警告] 無法儲存除錯網頁: {e}")
+            elif not valid_areas:
+                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 票券即時狀態: 目前所有區域皆無票 (已售完)。")
+            else:
+                print(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚨 發現有票區域！ 🚨")
+                print("-" * 65)
+                for res in valid_areas:
+                    status = res['status']
+                    # 依據狀態套用終端機顏色
+                    if "熱賣中" in status:
+                        # 綠色
+                        status_str = f"\033[92m{status:<10}\033[0m"
+                    else:
+                        # 黃色 / 剩餘票數
+                        status_str = f"\033[93m{status:<10}\033[0m"
+                        
+                    print(f"區域: {res['area']:<25} | 狀態: {status_str} | 剩餘票數: {res['remaining']}")
+                print("-" * 65)
             
             # 優先排序偏好區域 (優先選擇剩餘 2 張票的選區)
             available_area = None
@@ -386,7 +496,10 @@ def main():
                     print("\a", end="", flush=True)
                     time.sleep(0.15)
                 
-                print("\n【已自動進入該區域購票填寫介面，請立刻手動輸入張數、驗證碼並進行結帳！】")
+                # 執行自動填寫欄位與驗證碼流程
+                autofill_ticket_page(driver)
+                
+                print("\n【已自動完成購票頁面填寫，請確認後結帳（若非模擬網站，請手動輸入驗證碼並結帳）！】")
                 print("程式已暫停監控，保留瀏覽器視窗供您操作。")
                 
                 # 進入無限循環，保持瀏覽器視窗開啟不關閉
@@ -409,7 +522,48 @@ def main():
                 print(f"[{time.strftime('%H:%M:%S')}] 固定間隔模式：等待 {refresh_interval} 秒...")
                 time.sleep(refresh_interval)
                 
-            driver.refresh()
+            # 使用 JS Fetch 進行局部重新整理，避免整頁閃爍並加速載入
+            try:
+                # 初始化狀態
+                driver.execute_script("window.js_fetch_status = 'pending';")
+                driver.execute_script("""
+                    fetch(window.location.href, { cache: 'no-store' })
+                        .then(response => {
+                            if (!response.ok) throw new Error('HTTP ' + response.status);
+                            return response.text();
+                        })
+                        .then(html => {
+                            let parser = new DOMParser();
+                            let newDoc = parser.parseFromString(html, 'text/html');
+                            // 替換 body 內容
+                            document.body.innerHTML = newDoc.body.innerHTML;
+                            window.js_fetch_status = 'success';
+                        })
+                        .catch(err => {
+                            window.js_fetch_status = 'error: ' + err.message;
+                        });
+                """)
+                
+                # 等待 JS 異步請求完成 (最多等 3 秒)
+                start_wait = time.time()
+                status = 'pending'
+                while time.time() - start_wait < 3.0:
+                    status = driver.execute_script("return window.js_fetch_status;")
+                    if status != 'pending':
+                        break
+                    time.sleep(0.1)
+                
+                if status == 'success':
+                    print(f"[{time.strftime('%H:%M:%S')}] 局部更新完成 (無閃爍)")
+                else:
+                    print(f"[{time.strftime('%H:%M:%S')}] 局部更新失敗 ({status})，改用瀏覽器預設重新整理...")
+                    driver.refresh()
+            except Exception as e:
+                print(f"[{time.strftime('%H:%M:%S')}] 局部更新異常 ({e})，改用瀏覽器預設重新整理...")
+                try:
+                    driver.refresh()
+                except Exception:
+                    pass
             
     except KeyboardInterrupt:
         print("\n\n監控已由使用者手動中止。")
