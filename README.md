@@ -65,20 +65,40 @@
 
 ### 方案 B：直接於本機執行
 
-1. **安裝 Python 依賴套件**：
+1. **啟用虛擬環境 (Virtual Environment)**：
+   本專案目錄已包含虛擬環境資料夾 `venv`，請依您的作業系統與終端機執行對應指令啟用：
+
+   - **PowerShell (Windows 預設)**：
+     ```powershell
+     .\venv\Scripts\Activate.ps1
+     ```
+     *(若遇到執行原則錯誤，請先執行 `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process`)*
+
+   - **Command Prompt (cmd.exe)**：
+     ```cmd
+     venv\Scripts\activate.bat
+     ```
+
+   - **Git Bash / macOS / Linux (Bash)**：
+     ```bash
+     source venv/Scripts/activate
+     ```
+
+2. **安裝 Python 依賴套件**：
+   啟用虛擬環境後，安裝所需套件：
    ```bash
-   pip3 install selenium undetected-chromedriver beautifulsoup4
+   pip install selenium undetected-chromedriver beautifulsoup4
    ```
 
-2. **修改 `automate.py` 中的目標網址**：
-   編輯 [automate.py](file:///home/ron/ticket/automate.py) 第 129 行附近的 `target_url` 為您要搶票的選區網址：
+3. **修改 `automate.py` 中的目標網址**：
+   編輯 [automate.py](file:///c:/Users/2512485/project/ticket/automate.py) 的 `target_url` 為您要搶票的選區網址：
    ```python
    target_url = "https://tixcraft.com/ticket/area/26_btskns/22510"
    ```
 
-3. **執行監控腳本**：
+4. **執行監控腳本**：
    ```bash
-   python3 automate.py
+   python automate.py
    ```
 
 ---
